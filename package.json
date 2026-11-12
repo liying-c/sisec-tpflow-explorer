@@ -1,0 +1,21 @@
+{
+  "name": "vis-hw2-sisec2018-explorer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "node tests/check_stats.mjs && node tests/check_tensor.mjs",
+    "data": "python3 -I prepare_data.py ../sisec18-raw/sigsep-mus-2018"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "vite": "^7.0.0"
+  }
+}

@@ -1,0 +1,163 @@
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --surface-2: #f0efec;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #8a8984;
+  --grid: #e3e2de;
+  --series-1: #2a78d6;        /* 監督式 */
+  --series-2: #eb6834;        /* 盲分離 */
+  --series-3: #1baf7a;        /* 監督式 + 額外資料 */
+  --series-oracle: #8a8984;   /* oracle：參考線，不是參賽者 */
+  --select: #0b0b0b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --surface-2: #262625;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8e8d86;
+    --grid: #343432;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-oracle: #8e8d86;
+    --select: #ffffff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --surface-2: #262625;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8e8d86;
+  --grid: #343432;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-oracle: #8e8d86;
+  --select: #ffffff;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  line-height: 1.55;
+}
+main { max-width: 960px; margin: 0 auto; padding: 32px 16px 56px; }
+header h1 { font-size: 1.5rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--text-secondary); }
+.meta { font-size: 0.85rem; color: var(--text-muted); margin-top: 6px; }
+a { color: var(--series-1); }
+
+figure { margin: 32px 0 0; min-width: 0; }
+figure h2 { font-size: 1.1rem; margin: 0 0 4px; }
+figure h2 .hint { font-size: 0.82rem; font-weight: 400; color: var(--text-muted); margin-left: 6px; }
+figure .desc { margin: 0 0 10px; font-size: 0.9rem; color: var(--text-secondary); }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+@media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+
+/* ---------- 控制列 ---------- */
+.controls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 22px 0 4px; padding: 10px 12px; background: var(--surface-2); border-radius: 8px; }
+.control-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.control-label { font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; }
+.control-readout { font-size: 0.82rem; color: var(--text-secondary); }
+.seg { display: inline-flex; border: 1px solid var(--grid); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--surface-1); padding: 4px 10px; }
+.seg button + button { border-left: 1px solid var(--grid); }
+.seg button.on { background: var(--text-primary); color: var(--surface-1); }
+.cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.cat-toggle.off { opacity: 0.45; text-decoration: line-through; }
+button {
+  font: inherit; font-size: 0.82rem; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--grid); background: var(--surface-1); color: var(--text-primary);
+}
+button:hover { border-color: var(--text-muted); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.secondary { background: transparent; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.view-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 8px; }
+.view-hint { font-size: 0.8rem; color: var(--text-muted); }
+
+/* ---------- 圖表（D3 產生的 SVG，放全域樣式） ---------- */
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart svg text { font-family: inherit; }
+.axis text { fill: var(--text-secondary); font-size: 11px; }
+.axis line, .axis path { stroke: var(--grid); }
+.grid line { stroke: var(--grid); stroke-dasharray: 2 3; }
+.grid .domain { display: none; }
+.axis-label { fill: var(--text-muted); font-size: 11px; }
+.head { fill: var(--text-secondary); font-size: 11.5px; font-weight: 600; }
+.head.on { fill: var(--text-primary); }
+.sys-label { fill: var(--text-primary); font-size: 11.5px; font-weight: 600; }
+.sys-label.small { font-size: 9.5px; }
+.cell-text { font-size: 10px; font-variant-numeric: tabular-nums; pointer-events: none; }
+.row-bg { fill: transparent; }
+.row-bg.selected { fill: var(--surface-2); stroke: var(--select); stroke-width: 1.2; }
+.node { stroke: var(--surface-1); stroke-width: 2; }
+.node.selected { stroke: var(--select); stroke-width: 2.5; }
+.node-label { fill: var(--text-primary); font-size: 10.5px; font-weight: 600; pointer-events: none; }
+.node-label.small { font-size: 9.5px; }
+.author-edge { stroke: var(--text-muted); stroke-opacity: 0.45; }
+.author-edge:hover { stroke-opacity: 1; }
+.dom-edge { fill: none; stroke: var(--text-muted); stroke-opacity: 0.4; stroke-width: 1.2; }
+.dom-edge.lit { stroke: var(--text-primary); stroke-opacity: 1; stroke-width: 2; }
+.win-cell.ns { stroke: var(--text-muted); stroke-dasharray: 2 2; stroke-width: 1; }
+.track-label { fill: var(--text-secondary); font-size: 9px; }
+.track-label.on { fill: var(--text-primary); font-weight: 700; }
+.col-hl { fill: none; stroke: var(--select); stroke-width: 1.5; }
+.crosshair { stroke: var(--text-muted); stroke-width: 1; pointer-events: none; }
+.brush .selection { fill: var(--text-primary); fill-opacity: 0.08; stroke: var(--text-muted); }
+
+/* ---------- tooltip、說明、表格 ---------- */
+.tooltip {
+  position: fixed; z-index: 10; max-width: 260px; pointer-events: none;
+  background: var(--text-primary); color: var(--surface-1); font-size: 12px; line-height: 1.45;
+  padding: 7px 10px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+.tip-muted { opacity: 0.75; }
+.panel { margin: 28px 0 0; }
+.panel h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.tips, .math { margin: 0; padding-left: 1.2em; font-size: 0.9rem; color: var(--text-secondary); }
+.tips li, .math li { margin: 4px 0; }
+.tips strong, .math strong { color: var(--text-primary); }
+.placeholder-text { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+
+details.panel { font-size: 0.88rem; }
+summary { cursor: pointer; color: var(--text-secondary); }
+table { border-collapse: collapse; margin-top: 8px; width: 100%; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; font-size: 0.8rem; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.small { font-size: 0.78rem; color: var(--text-secondary); }
+tbody tr { cursor: pointer; }
+tbody tr.selected { background: var(--surface-2); }
+
+.status { color: var(--text-muted); margin-top: 24px; }
+.error { color: #d03b3b; margin-top: 16px; font-size: 0.9rem; white-space: pre-wrap; }
+footer { margin-top: 40px; font-size: 0.85rem; color: var(--text-muted); }
+footer code, .meta code { font-size: 0.85em; }
+
+/* ---------- 期末專案：四個階段 ---------- */
+.stage-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.stage-nav a { font-size: 0.85rem; padding: 4px 10px; border: 1px solid var(--grid); border-radius: 6px; text-decoration: none; color: var(--text-primary); background: var(--surface-1); }
+.stage-nav a:hover { border-color: var(--text-muted); }
+.stage { margin: 52px 0 0; padding-top: 20px; border-top: 2px solid var(--text-primary); scroll-margin-top: 12px; }
+.stage-title { font-size: 1.3rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+.stage-no { display: inline-block; font-size: 0.8rem; font-weight: 700; padding: 2px 8px; margin-right: 10px; border-radius: 4px; background: var(--text-primary); color: var(--surface-1); vertical-align: 3px; }
+.stage-lead { margin: 0; color: var(--text-secondary); }
+.problem { margin: 28px 0 0; padding: 10px 14px; border-left: 3px solid var(--text-primary); background: var(--surface-2); border-radius: 0 6px 6px 0; font-size: 0.92rem; color: var(--text-secondary); }
+.problem strong { color: var(--text-primary); }
+.glossary { margin: 0 0 10px; padding-left: 1.2em; font-size: 0.9rem; color: var(--text-secondary); }
+.glossary li { margin: 3px 0; }
+.glossary strong { color: var(--text-primary); }
+.check { font-size: 0.85rem; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px; }
+details.panel figure:first-of-type { margin-top: 14px; }

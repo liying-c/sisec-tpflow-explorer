@@ -1,0 +1,32 @@
+system,category,is_blind,extra_data,authors,affiliation,code
+2DFT,blind,yes,no,"Prem Seetharaman, Fatemeh Pishdadian, Bryan Pardo, Ethan Manilow (implementation author)",Northwestern University,https://github.com/interactiveaudiolab/nussl/blob/master/nussl/separation/ft2d.py
+HEL1,supervised,no,no,"Manal Helal, Dominic Ward, Mark Plumply","CVSSP, Surrey University, Guildford, UK",
+HPLP,blind,yes,no,Ethan Manilow (Implementation author),Northwestern University,https://github.com/interactiveaudiolab/nussl/blob/master/nussl/separation/high_low_pass_filter.py
+HPSS,blind,yes,no,"Derry Fitzgerald, Prem Seetharaman (implementation author), Ethan Manilow (implementation author)","Cork Institute of Technology, Northwestern University",https://github.com/interactiveaudiolab/nussl/blob/master/nussl/separation/hpss.py
+IBM1,oracle,no,no,"Antoine Liutkus, Fabian-Robert Stöter","Inria and LIRMM, University of Montpellier, France",https://github.com/sigsep/sigsep-mus-oracle
+IBM2,oracle,no,no,"Antoine Liutkus, Fabian-Robert Stöter","Inria and LIRMM, University of Montpellier, France",https://github.com/sigsep/sigsep-mus-oracle
+IRM1,oracle,no,no,"Antoine Liutkus, Fabian-Robert Stöter","Inria and LIRMM, University of Montpellier, France",https://github.com/sigsep/sigsep-mus-oracle
+IRM2,oracle,no,no,"Antoine Liutkus, Fabian-Robert Stöter","Inria and LIRMM, University of Montpellier, France",https://github.com/sigsep/sigsep-mus-oracle
+JY1,supervised,no,no,"Jen-Yu Liu, Yi-Hsuan Yang","Research Center for IT Innovation, Academia Sinica, Taiwan",
+JY2,supervised,no,no,"Jen-Yu Liu, Yi-Hsuan Yang","Research Center for IT Innovation, Academia Sinica, Taiwan",
+JY3,supervised,no,no,"Jen-Yu Liu, Yi-Hsuan Yang","Research Center for IT Innovation, Academia Sinica, Taiwan",
+MDL1,supervised,no,no,Stylianos Ioannis Mimilakis and Konstantinos Drossos,"Fraunhofer-IDMT, Ilmenau, Germany",https://github.com/Js-Mim/mss_pytorch
+MDLT,supervised,no,no,Stylianos Ioannis Mimilakis and Konstantinos Drossos,"Fraunhofer-IDMT, Ilmenau, Germany",https://github.com/Js-Mim/mss_pytorch
+MELO,blind,yes,no,"Justin Salamon, Prem Seetharaman (Implementation Author), Ethan Manilow (Implementation Author)","New York University, Northwestern University",https://github.com/interactiveaudiolab/nussl/blob/master/nussl/separation/melodia.py
+MIX,oracle,no,no,"Antoine Liutkus, Fabian-Robert Stöter","Inria and LIRMM, University of Montpellier, France",https://github.com/sigsep/sigsep-mus-oracle
+MWF,oracle,no,no,"Antoine Liutkus, Fabian-Robert Stöter","Inria and LIRMM, University of Montpellier, France",https://github.com/sigsep/sigsep-mus-oracle
+REP1,blind,yes,no,"Zafar Raffi, Bryan Pardo, Ethan Manilow (implementation author)","Gracenote, Northwestern University",https://github.com/interactiveaudiolab/nussl/blob/master/nussl/separation/repet.py
+REP2,blind,yes,no,"Zafar Raffi, Bryan Pardo, Ethan Manilow (implementation author)","Gracenote, Northwestern University",https://github.com/interactiveaudiolab/nussl/blob/master/nussl/separation/repet_sim.py
+RGT1,supervised,no,no,"Gerard Roma, Owen Green, Pierre Alexandre Tremblay",University of Huddersfield,https://github.com/flucoma/LVA-ICA-2018/
+RGT2,supervised,no,no,"Gerard Roma, Owen Green, Pierre Alexandre Tremblay",University of Huddersfield,https://github.com/flucoma/LVA-ICA-2018/
+RPCA,blind,yes,no,"Po-Sen Huang, Scott Deeann Chen, Paris Smaragdis, Mark Hasegawa-Johnson, Prem Seetharaman (Implementation Author), Ethan Manilow (Implementation Author)","University of Illinois, Northwestern University",
+STL1,supervised+extra,no,yes,"Daniel Stoller, Sebastian Ewert, Simon Dixon",Queen Mary University London,
+STL2,supervised,no,no,"Daniel Stoller, Sebastian Ewert, Simon Dixon",Queen Mary University London,
+TAK1,supervised,no,no,"Naoya Takahashi, Nabarun Goswami, Yuki Mitsufuji","Sony Corporation, Audio Technology Development Department, Tokyo, Japan",
+TAK2,supervised+extra,no,yes,"Naoya Takahashi, Nabarun Goswami, Yuki Mitsufuji","Sony Corporation, Audio Technology Development Department, Tokyo, Japan",
+TAK3,supervised+extra,no,yes,"Naoya Takahashi, Nabarun Goswami, Yuki Mitsufuji","Sony Corporation, Audio Technology Development Department, Tokyo, Japan",
+TAU1,supervised+extra,no,yes,"Naoya Takahashi, Stefan Uhlich, Franck Giron, Michael Enenkl, Thomas Kemp, Nabarun Goswami, Yuki Mitsufuji","Sony Corporation, Audio Technology Development Department, Tokyo, Japan",
+UHL1,supervised,no,no,"Stefan Uhlich, Franck Giron, Michael Enenkl, Thomas Kemp, Naoya Takahashi, Yuki Mitsufuji","Sony European Technology Center (EuTEC), Stuttgart, Germany",
+UHL2,supervised,no,no,"Stefan Uhlich, Franck Giron, Michael Enenkl, Thomas Kemp, Naoya Takahashi, Yuki Mitsufuji","Sony European Technology Center (EuTEC), Stuttgart, Germany",
+UHL3,supervised+extra,no,yes,"Stefan Uhlich, Franck Giron, Michael Enenkl, Thomas Kemp, Naoya Takahashi, Yuki Mitsufuji","Sony European Technology Center (EuTEC), Stuttgart, Germany",
+WK,supervised,no,no,"Dominic Ward, Qiuqiang Kong","CVSSP, University of Surrey, Guildford, UK",
