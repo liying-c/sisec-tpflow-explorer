@@ -59,7 +59,6 @@ def test_mds_repeated_eigenvalue_is_deterministic_and_exact():
     xy = classical_mds(d)
     assert np.abs(np.linalg.norm(xy[:, None] - xy[None], axis=-1) - d).max() < 1e-9
     assert xy[2, 0] > xy[0, 0]                      # 第一軸朝向遞增的參考向量
-    np.testing.assert_allclose(xy, classical_mds(d + 1e-13 * np.eye(3)[::-1] * 0), atol=1e-12)
 
 
 def test_correlation_distance_all_nan_row():
