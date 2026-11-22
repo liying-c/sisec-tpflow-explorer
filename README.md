@@ -74,22 +74,43 @@ $\mathbf{a}$、$\mathbf{b}$、$\mathbf{c}$ 分別是系統、曲目、指標維�
 - **指標可以這樣理解**：MIX 的 SAR 排第 1、SIR 排第 30，說明 SAR 量的是加工造成的瑕疵、SIR 量的是其他聲音漏進來多少；有 6 個系統的人聲 SDR 比 MIX 還低。MIX 的 ISR 排第 29，原因尚待釐清。
 - **自動推薦有偏誤**：它永遠選指標維度，因為指標只有 4 個，切開後每一群各自擁有一整組系統和曲目的向量，自由度增加最多。頁面列出三個維度各自的降幅讓使用者判斷。
 
-### 新增的程式
+### 程式架構
+
+演算法與畫面分開：計算全部在 Python 後端，Vue 只負責狀態、畫圖與互動。
+
+```
+瀏覽器（Vue 3 + D3，GitHub Pages）  ──  /api/*  ──▶  FastAPI（backend/sisec，Heroku）
+        只保存狀態與分割樹的形狀                         無狀態：每次依請求重算
+```
+
+後端只依賴 numpy。numpy 當計算機用（陣列、索引、收縮、範數、排序、特徵分解），演算法的每一步都自己寫，對照論文的式子，不呼叫 scipy、scikit-learn 這類現成的實作。
 
 | 檔案 | 內容 |
 |---|---|
-| `src/tensor.js` | 張量工具：百分位轉換、非負 rank-one 分解（ALS）、連續分解、k-means、沿維度分割與推薦、階層式分群 |
-| `src/partition.js` | 分割樹：建立節點、分割、復原、各維度的摘要與偏差、代表元素 |
-| `src/components/MetricAnchor.vue` | 圖 2 |
-| `src/components/SmallMultiples.vue` | 圖 5 |
-| `src/components/ClusterHeatmap.vue` | 圖 6，含樹狀圖 |
-| `src/components/PartitionTree.vue` | 圖 7，`d3.stratify` 與 `d3.tree` 排版 |
-| `src/components/PatternBars.vue` | 圖 8 |
-| `tests/check_tensor.mjs` | 張量與分割樹的驗證：rank-one 張量誤差為 0、找回植入的兩群、自動推薦選到植入的維度、分割後誤差不增加、分割與復原 |
+| `backend/sisec/data.py` | 讀 CSV，把分數整理成一個四維陣列 `scores[系統, 目標, 曲目, 指標]` |
+| `backend/sisec/tensor.py` | 百分位轉換、非負 rank-one 分解（ALS）、連續分解、k-means、沿維度分割與推薦 |
+| `backend/sisec/partition.py` | 一塊子張量的摘要：未解釋比例、各維度的模型值與偏差四分位、代表元素、再分割 |
+| `backend/sisec/stats.py` | 中位數、相關距離、古典 MDS、Wilcoxon signed-rank test |
+| `backend/sisec/graph.py` | 優勢圖：兩兩比較、顯著優於的邊、遞移化簡、分層 |
+| `backend/sisec/cluster.py` | 階層式分群（average linkage） |
+| `backend/sisec/views.py` | 把上面的結果組成各張圖需要的資料（哪些系統可見、依什麼排序、哪一塊張量） |
+| `backend/sisec/api.py` | FastAPI 路由：驗證參數、缺值轉成 `null` |
+| `src/api.js` | 前端的 API 用戶端；`null` 轉回 `NaN`、丟棄過期的回應 |
+| `src/App.vue` | 狀態、網址參數、分割樹的形狀（每個節點記著三個維度的索引清單） |
+| `src/components/*.vue` | 各張圖；圖 2 `MetricAnchor`、圖 5 `SmallMultiples`、圖 6 `ClusterHeatmap`、圖 7 `PartitionTree`、圖 8 `PatternBars` |
 
-網址新增參數 `p=<維度><群數>`（維度 0 系統、1 曲目、2 指標），還原根節點的第一次分割，例如 `?p=13` 是沿曲目切 3 群。其餘參數同 HW2。
+| 端點 | 用途 |
+|---|---|
+| `GET /api/meta` | 系統與曲目的屬性 |
+| `POST /api/overview` | 階段 1：一個指標、一個 stem 的排行、分數矩陣、MDS、優勢圖 |
+| `POST /api/stage` | 階段 2 到 4：人聲的列與欄、百分位張量、四指標中位數 |
+| `POST /api/cluster` | 圖 6 的階層式分群 |
+| `POST /api/partition/summary` | 分割樹一個節點的摘要 |
+| `POST /api/partition/split` | 把一個節點沿某個維度（或自動推薦）切開 |
 
-`npm run check` 現在同時驗證 `stats.js` 與 `tensor.js`、`partition.js`，共 36 項。
+網址參數 `p=<維度><群數>`（維度 0 系統、1 曲目、2 指標）還原根節點的第一次分割，例如 `?p=13` 是沿曲目切 3 群。其餘參數同 HW2。
+
+`npm run check` 執行後端的 pytest（94 項）。除了合成資料的檢查（rank-one 張量誤差為 0、找回植入的兩群、自動推薦選到植入的維度等），還有 `backend/tests/golden/` 的基準比對：改寫前用原本的 JavaScript 實作在真實資料上輸出結果，Python 版逐項核對分群成員、誤差、優勢圖的邊與 MDS 座標，確保上面「目前的發現」的數字不變。
 
 ### 參考資料
 
@@ -100,11 +121,26 @@ $\mathbf{a}$、$\mathbf{b}$、$\mathbf{c}$ 分別是系統、曲目、指標維�
 
 ## 執行
 
+需要 Node.js 與 [uv](https://docs.astral.sh/uv/)（Python 的套件管理工具）。
+
 ```bash
 npm install
-npm run dev        # 開發伺服器
-npm run check      # 驗證統計與張量函式
-npm run build      # 打包到 dist/
+npm run api        # Python 計算後端，http://localhost:8000（第一次會自動安裝 numpy、FastAPI）
+npm run dev        # 另開一個終端機：前端開發伺服器，/api 會轉給後端
+npm run check      # 後端的 pytest
+npm run build      # 打包前端到 dist/
 ```
+
+### 部署
+
+- **前端**：推到 master 時由 GitHub Actions 打包並部署到 GitHub Pages。後端網址由 repo 變數 `API_URL` 指定（打包時成為 `VITE_API_URL`）。
+- **後端**：Heroku。repo 根目錄的 `Procfile`、`requirements.txt`、`.python-version` 是給它用的。根目錄同時有 `package.json`，所以要明確指定 Python buildpack：
+
+  ```bash
+  heroku buildpacks:set heroku/python
+  heroku config:set SISEC_ALLOW_ORIGINS=https://liying-c.github.io
+  ```
+
+  `requirements.txt` 由 `cd backend && uv export --no-dev --no-hashes --no-emit-project -o ../requirements.txt` 產生，改依賴後要重跑。
 
 資料來源與引用見 `public/data/README.md`。程式碼以 MIT 授權。
