@@ -1,15 +1,16 @@
 <script setup>
 // Cluster heatmap：一張熱圖切片，曲目（欄）以階層式分群重新排序，上方畫樹狀圖。
-// 把樹切成 k 群後，群與群之間留白分隔，下方標出每群有幾首歌。
+// 把樹切成 k 群後，群與群之間留白分隔，下方標出每群有幾首歌。分群由後端計算，這裡只負責畫。
 import { ref, onMounted, watch } from 'vue'
 import * as d3 from 'd3'
 import { CATEGORY } from '../series.js'
-import { hclust } from '../tensor.js'
 import { showTip, moveTip, hideTip } from '../tooltip.js'
 
 const props = defineProps({
   systems: { type: Array, required: true },    // [{ system, category }] 已排序（列）
   tracks: { type: Array, required: true },     // [{ track_id, artist, title }] 任意順序，本元件會重排
+  // 後端的分群結果（索引是 tracks 的位置）：{ order: 葉節點由左到右, merges: [{ a, b, id, height }], labels: { k: 每首歌的群編號 } }
+  clustering: { type: Object, default: null },
   value: { type: Function, required: true },   // (system, track_id) → 0..1 百分位 | NaN
   raw: { type: Function, required: true },     // (system, track_id) → dB
   k: { type: Number, default: 3 },             // 切成幾群（2–6）
@@ -43,16 +44,11 @@ function draw() {
   d3.select(el).selectAll('*').remove()
   const ns = props.systems.length
   const n = props.tracks.length
-  if (ns < 2 || n < 2) { emitGroups([]); return }
+  const h = props.clustering
+  if (ns < 2 || n < 2 || !h || h.order.length !== n) { emitGroups([]); return }
 
-  // ---- 分群：每首歌的特徵 = 它那一欄（各系統的百分位），NaN 以 0.5 代替 ----
-  const points = props.tracks.map(t => props.systems.map(s => {
-    const v = props.value(s.system, t.track_id)
-    return Number.isFinite(v) ? v : 0.5
-  }))
-  const h = hclust(points)
-  const k = Math.max(1, Math.min(Math.round(props.k) || 1, n))
-  const label = h.cut(k)
+  // ---- 分群：每首歌的特徵 = 它那一欄（各系統的百分位）；k 群的標籤由後端切好 ----
+  const label = h.labels[props.k] ?? new Array(n).fill(0)
   const pos = new Array(n)                       // 點編號 → 顯示欄位
   h.order.forEach((i, j) => { pos[i] = j })
   const cols = h.order.map((i, j) => ({ track: props.tracks[i], i, j, g: 0 }))
@@ -76,17 +72,15 @@ function draw() {
     .attr('role', 'img').attr('aria-label', `各系統在各曲目上的 ${props.metric} 百分位，曲目依階層式分群排序並切成 ${groups.length} 群`)
 
   // ---- 樹狀圖 ----
-  const yd = d3.scaleLinear().domain([0, h.root.height || 1]).range([MT + DH, MT])
+  // 依合併的先後由下往上畫：葉節點在自己的欄位，每次合併在兩個子節點上方連一條橫線
+  const yd = d3.scaleLinear().domain([0, h.merges.at(-1)?.height || 1]).range([MT + DH, MT])
   const segs = []
-  const place = node => {
-    if (!node.left) return { x: cx(pos[node.members[0]]), y: yd(0) }
-    const a = place(node.left)
-    const b = place(node.right)
-    const y = yd(node.height)
+  const at = new Map(pos.map((j, i) => [i, { x: cx(j), y: yd(0) }]))     // 節點 id → 位置
+  for (const m of h.merges) {
+    const a = at.get(m.a), b = at.get(m.b), y = yd(m.height)
     segs.push(`M${a.x},${a.y}V${y}H${b.x}V${b.y}`)
-    return { x: (a.x + b.x) / 2, y }
+    at.set(m.id, { x: (a.x + b.x) / 2, y })
   }
-  place(h.root)
   svg.append('path').attr('d', segs.join(''))
     .style('fill', 'none').style('stroke', 'var(--text-muted)').style('stroke-width', 1)
     .style('pointer-events', 'none')
@@ -147,7 +141,7 @@ function draw() {
 }
 
 onMounted(draw)
-watch(() => [props.systems, props.tracks, props.value, props.k, props.color, props.selected, props.selectedTrack, props.metric], draw, { flush: 'post' })
+watch(() => [props.systems, props.tracks, props.value, props.clustering, props.k, props.color, props.selected, props.selectedTrack, props.metric], draw, { flush: 'post' })
 </script>
 
 <template>

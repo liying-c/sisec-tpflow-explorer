@@ -22,3 +22,7 @@ export const TARGETS = [
   { key: 'other', name: '其他 other' },
   { key: 'accompaniment', name: '伴奏 accompaniment' },
 ]
+
+// 張量的三個維度（階段 4）
+export const MODE_NAMES = ['系統', '曲目', '指標']
+export const MODE_UNITS = ['個系統', '首歌', '個指標']

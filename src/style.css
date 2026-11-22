@@ -142,6 +142,8 @@ tbody tr { cursor: pointer; }
 tbody tr.selected { background: var(--surface-2); }
 
 .status { color: var(--text-muted); margin-top: 24px; }
+/* 後端計算中的提示：固定在角落，不推擠版面 */
+.busy { position: fixed; right: 16px; bottom: 16px; z-index: 20; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; color: var(--text-muted); background: var(--surface-1); border: 1px solid var(--grid); }
 .error { color: #d03b3b; margin-top: 16px; font-size: 0.9rem; white-space: pre-wrap; }
 footer { margin-top: 40px; font-size: 0.85rem; color: var(--text-muted); }
 footer code, .meta code { font-size: 0.85em; }

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "node tests/check_stats.mjs && node tests/check_tensor.mjs",
+    "api": "cd backend && uv run uvicorn sisec.api:app --reload --port 8000",
+    "check": "cd backend && uv run pytest -q",
     "data": "python3 -I prepare_data.py ../sisec18-raw/sigsep-mus-2018"
   },
   "dependencies": {

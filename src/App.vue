@@ -12,18 +12,15 @@ import SmallMultiples from './components/SmallMultiples.vue'
 import ClusterHeatmap from './components/ClusterHeatmap.vue'
 import PartitionTree from './components/PartitionTree.vue'
 import PatternBars from './components/PatternBars.vue'
-import { makeTensor, percentileRanks } from './tensor.js'
-import { makeNode, splitNode, unsplit, flatten, modeSummary, representative, MODE_NAMES, MODE_UNITS } from './partition.js'
-import { loadAll, loadFrames, profile, authorSet } from './data.js'
-import { median, pearson, wilcoxon, classicalMds, transitiveReduction, layerByLongestPath, isNum } from './stats.js'
-import { CATEGORIES, CATEGORY, METRICS, TARGETS } from './series.js'
+import { api, loadFrames, latest } from './api.js'
+import { CATEGORIES, CATEGORY, METRICS, TARGETS, MODE_NAMES, MODE_UNITS } from './series.js'
 import { tip } from './tooltip.js'
 
-const base = import.meta.env.BASE_URL
+// 這個檔只管狀態與畫面；統計、張量、圖論的計算都在後端（backend/sisec），透過 api.js 取得結果。
 const ALPHA = 0.05
+const isNum = v => typeof v === 'number' && Number.isFinite(v)
 
 // ---------- 狀態 ----------
-const data = ref(null)
 const loading = ref(true)
 const error = ref('')
 const metric = ref('SDR')
@@ -43,204 +40,201 @@ if (q.get('c')) { const c = new Set(q.get('c').split(',').filter(k => CATEGORY[k
 if (q.get('sel')) selected.value = new Set(q.get('sel').split(',').filter(Boolean))
 if (q.get('t')) selectedTrack.value = q.get('t')
 
+// ---------- 後端回應 ----------
+const meta = shallowRef(null)   // { systems, tracks }
+const ov = shallowRef(null)     // 階段 1：{ metric, target, ...overview }，一個指標、一個 stem
+const st = shallowRef(null)     // 階段 2–4：人聲的列、欄、百分位
+const cl = shallowRef(null)     // 圖 6：{ metric, order, merges, labels }
+const busy = ref(0)             // 進行中的請求數
+const apiError = ref('')
+const describe = e => `無法連上計算伺服器（${e.message}）。若伺服器剛喚醒，請稍候重新整理。`
+const scope = () => ({ categories: [...cats.value] })
 
-onMounted(async () => {
+// 執行一個請求並維護「計算中」與錯誤訊息。失敗時保留上一次的畫面；strict 時改為往外丟（首次載入用）。
+async function call(task, strict = false) {
+  busy.value++
   try {
-    data.value = await loadAll(base)
-    if (selectedTrack.value && !data.value.trackInfo.has(selectedTrack.value)) selectedTrack.value = ''
+    const result = await task()
+    apiError.value = ''
+    return result
   } catch (e) {
-    error.value = `資料載入失敗：${e.message}\n請先執行 npm run data 產生 public/data/*.csv。`
+    if (strict) throw e
+    apiError.value = describe(e)
   } finally {
-    loading.value = false
+    busy.value--
   }
+}
+
+const data = computed(() => meta.value && {
+  systemInfo: new Map(meta.value.systems.map(s => [s.system, s])),
+  trackInfo: new Map(meta.value.tracks.map(t => [t.track_id, t])),
 })
 
-// ---------- 由狀態推導的資料（computed 會快取，只有上游變了才重算） ----------
-const trackIds = computed(() => data.value ? data.value.tracks.map(t => t.track_id) : [])
-const trackIndex = computed(() => new Map(trackIds.value.map((t, i) => [t, i])))
-const visible = computed(() => data.value ? data.value.systems.filter(s => cats.value.has(s.category)) : [])
+// ---------- 階段 1：排行、熱圖、方法地圖、優勢圖 ----------
+const fetchOverview = latest(api.overview)
+async function refreshOverview(strict = false) {
+  const query = { metric: metric.value, target: target.value, ...scope() }
+  const r = await call(() => fetchOverview(query), strict)
+  if (r) ov.value = { ...r, metric: query.metric, target: query.target }
+}
+watch([metric, target, cats], () => { if (meta.value) refreshOverview() })
 
-// 每個可見系統在目前 stem / 指標上的 50 首歌分數剖面
-const profiles = computed(() => new Map(visible.value.map(s => [s.system, profile(data.value.index, s.system, target.value, metric.value, trackIds.value)])))
-const medians = computed(() => new Map([...profiles.value].map(([s, p]) => [s, median(p)])))
-const sortDesc = (a, b) => (isNum(b.median) ? b.median : -1e9) - (isNum(a.median) ? a.median : -1e9)
-const ranking = computed(() => visible.value.map(s => ({ system: s.system, category: s.category, median: medians.value.get(s.system) })).sort(sortDesc))
+// 圖上標示的指標與 stem 跟著「已經拿到的資料」走，回應還沒到之前不會出現標題與內容不一致
+const viewMetric = computed(() => ov.value?.metric ?? metric.value)
+const viewTarget = computed(() => ov.value?.target ?? target.value)
 
-// 視圖 1：排行榜，五個 stem 的中位數
-const leaderboardRows = computed(() => ranking.value.map(r => ({
-  ...r,
-  values: Object.fromEntries(TARGETS.map(t => [t.key, median(profile(data.value.index, r.system, t.key, metric.value, trackIds.value))])),
-})))
+const trackIndex = computed(() => new Map((ov.value?.trackIds ?? []).map((t, i) => [t, i])))
+const ranking = computed(() => ov.value?.ranking ?? [])
+const leaderboardRows = computed(() => ov.value?.leaderboard ?? [])
+const tracksSorted = computed(() => ov.value?.tracksSorted ?? [])
+const valueAt = (system, trackId) => ov.value?.profiles[system]?.[trackIndex.value.get(trackId)] ?? NaN
 
 // 顏色：單色漸層（藍），低 → 高。深色模式用同一組色階反向，讓「高」是亮的。
 const SEQ_LIGHT = ['#cde2fb', '#86b6ef', '#3987e5', '#1c5cab', '#0d366b']
 const SEQ_DARK = ['#184f95', '#256abf', '#3987e5', '#86b6ef', '#cde2fb']
-const colorDomain = computed(() => {
-  const vis = new Set(visible.value.map(s => s.system))
-  const vals = data.value.scores.filter(r => vis.has(r.system) && isNum(r[metric.value])).map(r => r[metric.value]).sort(d3.ascending)
-  return [d3.quantile(vals, 0.05) ?? 0, d3.quantile(vals, 0.99) ?? 10]
-})
 const color = computed(() => {
-  const sc = d3.scaleSequential(d3.interpolateRgbBasis(dark.value ? SEQ_DARK : SEQ_LIGHT)).domain(colorDomain.value).clamp(true)
+  const sc = d3.scaleSequential(d3.interpolateRgbBasis(dark.value ? SEQ_DARK : SEQ_LIGHT)).domain(ov.value?.colorDomain ?? [0, 10]).clamp(true)
   return v => sc(v)
 })
 const textOn = fill => (d3.hsl(fill).l > 0.62 ? '#0b0b0b' : '#ffffff')
 
-// 視圖 2：MDS。距離 = sqrt(2(1 − r))，即標準化剖面之間的歐氏距離。
-const mapPoints = computed(() => {
-  const sys = visible.value
-  if (sys.length < 3) return []
-  const dist = sys.map(a => sys.map(b => {
-    if (a === b) return 0
-    const r = pearson(profiles.value.get(a.system), profiles.value.get(b.system))
-    return isNum(r) ? Math.sqrt(Math.max(0, 2 * (1 - r))) : 2
-  }))
-  const xy = classicalMds(dist)
-  return sys.map((s, i) => ({ system: s.system, category: s.category, x: xy[i][0], y: xy[i][1], median: medians.value.get(s.system), info: s }))
-})
-const authorEdges = computed(() => {
-  const sets = visible.value.map(s => ({ system: s.system, authors: authorSet(s.authors) }))
-  const edges = []
-  for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) {
-    const shared = [...sets[i].authors].filter(a => sets[j].authors.has(a))
-    if (shared.length) edges.push({ a: sets[i].system, b: sets[j].system, shared: shared.map(n => n.replace(/\b\w/g, c => c.toUpperCase())) })
-  }
-  return edges
-})
+const mapPoints = computed(() => (ov.value?.map ?? []).map(p => ({ ...p, info: data.value.systemInfo.get(p.system) })))
+const authorEdges = computed(() => ov.value?.authorEdges ?? [])
 
-// 視圖 3：兩兩比較 → 顯著優於的邊 → 遞移化簡 → 分層
+// 優勢圖：後端回傳依排行順序的勝場、樣本數、p 值矩陣，這裡包成 (a, b) → 結果 的查表
 const dominance = computed(() => {
-  const sys = ranking.value.map(r => r.system)
-  const cache = new Map()
+  const d = ov.value?.dominance
+  if (!d) return { win: () => ({ wins: 0, n: 0, rate: NaN, p: 1 }), edges: [], allEdges: 0, layers: new Map() }
+  const at = new Map(d.order.map((s, i) => [s, i]))
   const win = (a, b) => {
-    const key = a + '|' + b
-    if (cache.has(key)) return cache.get(key)
-    const pa = profiles.value.get(a), pb = profiles.value.get(b)
-    let wins = 0, n = 0
-    for (let i = 0; i < pa.length; i++) if (isNum(pa[i]) && isNum(pb[i])) { n++; if (pa[i] > pb[i]) wins++ }
-    const res = { wins, n, rate: n ? wins / n : NaN, p: wilcoxon(pa, pb).p }
-    cache.set(key, res)
-    return res
+    const i = at.get(a), j = at.get(b)
+    const wins = d.wins[i][j], n = d.n[i][j]
+    return { wins, n, rate: n ? wins / n : NaN, p: d.p[i][j] }
   }
-  const edges = []
-  for (let i = 0; i < sys.length; i++) for (let j = i + 1; j < sys.length; j++) {
-    const s = win(sys[i], sys[j])
-    if (s.p < ALPHA && s.rate > 0.5) edges.push([sys[i], sys[j]])
-  }
-  const reduced = transitiveReduction(sys, edges)
-  return { win, edges: reduced, allEdges: edges.length, layers: layerByLongestPath(sys, reduced) }
+  return { win, edges: d.edges, allEdges: d.allEdges, layers: new Map(Object.entries(d.layers)) }
 })
 
-// 視圖 4：曲目難度 = 非 oracle 可見系統的中位數，由難到易
-const tracksSorted = computed(() => {
-  const pool = visible.value.filter(s => s.category !== 'oracle')
-  const use = pool.length ? pool : visible.value
-  return trackIds.value.map((t, k) => ({
-    ...data.value.trackInfo.get(t),
-    difficulty: median(use.map(s => profiles.value.get(s.system)[k])),
-  })).sort((a, b) => (isNum(a.difficulty) ? a.difficulty : 1e9) - (isNum(b.difficulty) ? b.difficulty : 1e9))
-})
-const valueAt = (system, trackId) => profiles.value.get(system)?.[trackIndex.value.get(trackId)] ?? NaN
-
-// 視圖 5：時間線要畫的系統 = 已選取者，否則排行前 5
+// 時間線要畫的系統 = 已選取者，否則排行前 5
 const timelineSystems = computed(() => {
   const picked = ranking.value.filter(r => selected.value.has(r.system))
   return picked.length ? picked : ranking.value.slice(0, 5)
 })
 const selectedTrackInfo = computed(() => data.value?.trackInfo.get(selectedTrack.value))
-watch([selectedTrack, data], async ([t]) => {
+watch([selectedTrack, meta], async ([t]) => {
   frames.value = null
-  if (!t || !data.value) return
-  try { frames.value = await loadFrames(base, t) } catch { frames.value = null }
+  if (!t || !meta.value) return
+  try { frames.value = await loadFrames(t) } catch { frames.value = null }
 }, { immediate: true })
 
 
 // ================= 階段 2–4：固定看人聲（唯一涵蓋全部 31 個系統的目標） =================
-const STAGE_TARGET = 'vocals'
 const METRIC_KEYS = METRICS.map(m => m.key)
+const metricAt = new Map(METRIC_KEYS.map((m, i) => [m, i]))
+const range = n => Array.from({ length: n }, (_, i) => i)
 
-// 百分位：每個指標各自對「全部系統 × 50 首歌」排名，(名次 − 0.5) / n。四個指標尺度不同，轉換後才能放進同一個張量。
-const pct = computed(() => {
-  if (!data.value) return null
-  const rows = data.value.scores.filter(r => r.target === STAGE_TARGET)
-  const out = new Map()
-  const cells = rows.map(r => {
-    if (!out.has(r.system)) out.set(r.system, new Map())
-    const o = {}
-    out.get(r.system).set(r.track_id, o)
-    return o
-  })
-  for (const m of METRIC_KEYS) {
-    const ok = rows.map((r, i) => i).filter(i => isNum(rows[i][m]))
-    const pr = percentileRanks(ok.map(i => rows[i][m]))
-    ok.forEach((i, j) => { cells[i][m] = pr[j] })
-  }
-  return out
-})
-const pctAt = (s, t, m) => pct.value?.get(s)?.get(t)?.[m] ?? NaN
-const rawAt = (s, t, m) => { const v = data.value.index.get(s)?.get(STAGE_TARGET)?.get(t)?.[m]; return isNum(v) ? v : NaN }
+// 列與欄固定用人聲 SDR 的排行與曲目難度，不隨控制列的指標改變
+const stageSystems = computed(() => st.value?.systems ?? [])
+const stageTracks = computed(() => st.value?.tracks ?? [])
+const stageReady = computed(() => !!st.value?.ready)
+const stageAt = computed(() => ({
+  system: new Map(stageSystems.value.map((s, i) => [s.system, i])),
+  track: new Map(stageTracks.value.map((t, i) => [t.track_id, i])),
+}))
+const cell = (cube, s, t, m) => cube?.[stageAt.value.system.get(s)]?.[stageAt.value.track.get(t)]?.[metricAt.get(m)] ?? NaN
+const pctAt = (s, t, m) => cell(st.value?.pct, s, t, m)   // 百分位 0–1
+const rawAt = (s, t, m) => cell(st.value?.raw, s, t, m)   // dB
 const pctColor = computed(() => {
   const sc = d3.scaleSequential(d3.interpolateRgbBasis(dark.value ? SEQ_DARK : SEQ_LIGHT)).domain([0, 1]).clamp(true)
   return v => sc(v)
 })
 
-// 人聲 SDR 的排行與曲目難度：階段 2–4 的列與欄固定用這個順序，不隨控制列的指標改變
-const stageProfiles = computed(() => new Map(visible.value.map(s => [s.system, profile(data.value.index, s.system, STAGE_TARGET, 'SDR', trackIds.value)])))
-const stageSystems = computed(() => visible.value
-  .map(s => ({ system: s.system, category: s.category, median: median(stageProfiles.value.get(s.system)) }))
-  .filter(s => isNum(s.median)).sort(sortDesc))
-const stageTracks = computed(() => {
-  const pool = stageSystems.value.filter(s => s.category !== 'oracle')
-  const use = pool.length ? pool : stageSystems.value
-  return trackIds.value.map((t, k) => ({ ...data.value.trackInfo.get(t), difficulty: median(use.map(s => stageProfiles.value.get(s.system)[k])) }))
-    .sort((a, b) => (isNum(a.difficulty) ? a.difficulty : 1e9) - (isNum(b.difficulty) ? b.difficulty : 1e9))
-})
-const stageReady = computed(() => stageSystems.value.length >= 3)
-
 // 圖 2：指標錨點圖。每個系統在人聲上四個指標的中位數。
 const anchorX = ref('SIR')
 const anchorY = ref('SAR')
-const anchorPoints = computed(() => visible.value.map(s => ({
-  system: s.system, category: s.category,
-  ...Object.fromEntries(METRIC_KEYS.map(m => [m, median(profile(data.value.index, s.system, STAGE_TARGET, m, trackIds.value))])),
-})))
+const anchorPoints = computed(() => st.value?.anchor ?? [])
 
-// 圖 6：分群熱圖
+// 圖 6：分群熱圖。分群結果記著它是哪個指標算的，熱圖的格子跟著它走。
 const clusterK = ref(3)
-const sliceValue = (s, t) => pctAt(s, t, metric.value)
-const sliceRaw = (s, t) => rawAt(s, t, metric.value)
+const clusterMetric = computed(() => cl.value?.metric ?? metric.value)
+const sliceValue = (s, t) => pctAt(s, t, clusterMetric.value)
+const sliceRaw = (s, t) => rawAt(s, t, clusterMetric.value)
+const fetchCluster = latest(api.cluster)
+async function refreshCluster() {
+  if (!stageReady.value) { cl.value = null; return }
+  const query = { metric: metric.value, ...scope() }
+  const r = await call(() => fetchCluster(query))
+  if (r) cl.value = { ...r, metric: query.metric }
+}
+watch(metric, refreshCluster)
 
-// 圖 7–8：張量 = 系統 × 曲目 × 指標（百分位），以及它的分割樹
-const baseTensor = computed(() => {
-  if (!stageReady.value) return null
-  const S = stageSystems.value, Tr = stageTracks.value
-  const T = makeTensor([S.length, Tr.length, METRIC_KEYS.length])
-  let f = 0
-  for (const s of S) for (const t of Tr) for (const m of METRIC_KEYS) {
-    const v = pctAt(s.system, t.track_id, m)
-    T.data[f++] = isNum(v) ? v : 0.5
-  }
-  return T
-})
+// 圖 7–8：分割樹。樹的形狀存在前端：每個節點記著它在三個維度上的索引清單，
+// 摘要（未解釋比例、各維度的模型值與偏差）由後端對那一塊子張量算出。
 const tree = shallowRef(null)
 const treeTick = ref(0)
 const focusId = ref(-1)
 const compareIds = ref([])
 const splitMode = ref('auto')   // 'auto' | '0' 系統 | '1' 曲目 | '2' 指標
 const splitK = ref(3)
+const splitting = ref(false)
 const linkHeatmap = ref(true)
-const range = n => Array.from({ length: n }, (_, i) => i)
+let nodeSeq = 0
 let initialSplit = q.get('p') || ''
-watch(baseTensor, T => {
-  tree.value = T ? makeNode(T, T.shape.map(range)) : null
-  focusId.value = tree.value ? tree.value.id : -1
-  compareIds.value = tree.value ? [tree.value.id] : []
+
+const makeNode = (idx, summary, parent = null, label = '全部資料') =>
+  ({ id: nodeSeq++, parent, label, idx, ...summary, children: [], splitMode: null, rec: null })
+function attachChildren(node, result) {
+  node.splitMode = result.mode
+  node.rec = result.reductions          // [{ mode, reduction }]：三個維度各自的誤差降幅
+  node.children = result.children.map((c, i) => makeNode(c.idx, c.summary, node, `${MODE_NAMES[result.mode]}第 ${i + 1} 群`))
+}
+function unsplit(node) { node.children = []; node.splitMode = null; node.rec = null }
+function flatten(root) {
+  const out = []
+  const walk = (n, depth) => { out.push({ node: n, depth }); n.children.forEach(c => walk(c, depth + 1)) }
+  if (root) walk(root, 0)
+  return out
+}
+
+// 類別改變 → 列與欄改變 → 樹要重建。三件事（列欄、根節點、網址指定的第一次分割）一起取回再一起換上。
+const fetchStage = latest(async query => {
+  const stage = await api.stage(query)
+  if (!stage.ready) return { stage, root: null }
+  const full = [stage.systems.length, stage.tracks.length, stage.metrics.length].map(range)
+  const root = makeNode(full, await api.summary({ ...query, idx: full }))
+  root.scope = query
   // 網址參數 p=<維度><群數>（例如 p=03 = 沿系統切 3 群）：還原根節點的第一次分割
   const m = /^([012])([234])$/.exec(initialSplit)
-  if (tree.value && m && splitNode(T, tree.value, +m[1], +m[2])) compareIds.value = tree.value.children.slice(0, 3).map(c => c.id)
-  if (tree.value) initialSplit = ''   // 只在第一次建樹時套用，之後切換類別不再重放
+  if (m) {
+    const result = await api.split({ ...query, idx: full, mode: +m[1], k: +m[2] })
+    if (result.ok) attachChildren(root, result)
+  }
+  return { stage, root }
+})
+async function refreshStage(strict = false) {
+  const r = await call(() => fetchStage(scope()), strict)
+  if (!r) return
+  st.value = r.stage
+  cl.value = null                        // 舊的分群是照舊的欄順序算的
+  tree.value = r.root
+  focusId.value = r.root ? r.root.id : -1
+  compareIds.value = !r.root ? [] : r.root.children.length ? r.root.children.slice(0, 3).map(c => c.id) : [r.root.id]
+  if (r.root) initialSplit = ''          // 只在第一次建樹時套用，之後切換類別不再重放
   treeTick.value++
-}, { immediate: true })
+  refreshCluster()
+}
+watch(cats, () => { if (meta.value) refreshStage() })
+
+onMounted(async () => {
+  try {
+    meta.value = await api.meta()
+    if (selectedTrack.value && !data.value.trackInfo.has(selectedTrack.value)) selectedTrack.value = ''
+    await Promise.all([refreshOverview(true), refreshStage(true)])
+  } catch (e) {
+    error.value = describe(e)
+  } finally {
+    loading.value = false
+  }
+})
 
 const flatNodes = computed(() => { treeTick.value; return flatten(tree.value) })
 const nodeById = computed(() => new Map(flatNodes.value.map(f => [f.node.id, f.node])))
@@ -273,13 +267,22 @@ function pickNode(id) {
   if (cur.includes(id)) { if (cur.length > 1) compareIds.value = cur.filter(x => x !== id) }
   else compareIds.value = [...cur, id].slice(-3)
 }
-function doSplit() {
+async function doSplit() {
   const node = focusNode.value
-  if (!node || node.children.length) return
-  const ok = splitNode(baseTensor.value, node, splitMode.value === 'auto' ? 'auto' : +splitMode.value, +splitK.value)
-  if (!ok) return
-  compareIds.value = node.children.slice(0, 3).map(c => c.id)
-  treeTick.value++
+  const root = tree.value
+  if (!node || node.children.length || splitting.value) return
+  splitting.value = true
+  try {
+    const mode = splitMode.value === 'auto' ? null : +splitMode.value
+    const result = await call(() => api.split({ ...root.scope, idx: node.idx, mode, k: +splitK.value }))
+    // 切不動（ok 為假）就不改樹；等待期間樹被重建或這個節點已被切開時，也丟棄這次結果
+    if (!result?.ok || tree.value !== root || node.children.length) return
+    attachChildren(node, result)
+    compareIds.value = node.children.slice(0, 3).map(c => c.id)
+    treeTick.value++
+  } finally {
+    splitting.value = false
+  }
 }
 function undoSplit() {
   const node = focusNode.value
@@ -292,6 +295,7 @@ function undoSplit() {
   treeTick.value++
 }
 const splitReadout = computed(() => {
+  treeTick.value                        // 分割後節點物件不變，要靠這個才會重算
   const node = focusNode.value
   const src = node?.rec ? node : node?.parent?.rec ? node.parent : null
   if (!src) return ''
@@ -299,13 +303,15 @@ const splitReadout = computed(() => {
 })
 
 // 圖 8：選取區塊在三個維度上的摘要
+//   model  = 摘要對該元素的平均重建值，單位與資料相同（百分位 0–1）
+//   q1/med/q3 = 該元素所有格子「原始 − 重建」的四分位數
 const modeKey = (m, i) => (m === 0 ? stageSystems.value[i].system : m === 1 ? stageTracks.value[i].track_id : METRIC_KEYS[i])
 const panels = computed(() => {
   treeTick.value
   return compareIds.value.map(id => nodeById.value.get(id)).filter(Boolean).map(node => ({
     tag: tags.value.get(node.id),
     label: node.parent ? `${node.label} · ${node.idx[node.parent.splitMode].length} ${MODE_UNITS[node.parent.splitMode]}` : node.label,
-    modes: [0, 1, 2].map(m => new Map(modeSummary(node, m).map(s => [modeKey(m, s.index), s]))),
+    modes: node.modes.map((s, m) => new Map(s.index.map((i, j) => [modeKey(m, i), { index: i, model: s.model[j], q1: s.q1[j], med: s.med[j], q3: s.q3[j], absDev: s.absDev[j] }]))),
   }))
 })
 const patternModes = computed(() => {
@@ -340,10 +346,11 @@ const heatmapLayout = computed(() => {
   if (rest.length) { marks.push({ start: tracks.length, size: rest.length, label: '不在此分割內' }); tracks.push(...rest) }
   return { tracks, groups: marks }
 })
+// 代表曲：節點內摘要值位於中位數的那一首（由後端選出）
 function jumpToRepresentative() {
   const node = focusNode.value
   if (!node) return
-  selectedTrack.value = stageTracks.value[representative(node, 1)].track_id
+  selectedTrack.value = stageTracks.value[node.representativeTrack].track_id
 }
 
 // 網址同步（放在分割樹之後，因為要讀樹的狀態）
@@ -367,8 +374,8 @@ function toggleSelect(system) {
 }
 function selectTrack(id) { selectedTrack.value = selectedTrack.value === id ? '' : id }
 function clearSelection() { selected.value = new Set(); selectedTrack.value = '' }
-const metricInfo = computed(() => METRICS.find(m => m.key === metric.value))
-const targetInfo = computed(() => TARGETS.find(t => t.key === target.value))
+const metricInfo = computed(() => METRICS.find(m => m.key === viewMetric.value))
+const targetInfo = computed(() => TARGETS.find(t => t.key === viewTarget.value))
 const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
 </script>
 
@@ -394,12 +401,14 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
 
       <ControlBar v-model:metric="metric" v-model:target="target" v-model:cats="cats"
         :selected-count="selected.size" :selected-track="selectedTrackInfo ? selectedTrackInfo.title : ''" @clear="clearSelection" />
+      <p v-if="apiError" class="error" role="alert">{{ apiError }}</p>
+      <div v-if="busy" class="busy" role="status">計算中…</div>
 
       <div class="grid-2">
         <figure>
           <h2>圖 1　排行榜 <span class="hint">{{ metricInfo.name }} 中位數 · 點欄名切換 stem，點列選取系統</span></h2>
           <p class="desc">列是系統，欄是五個 stem，格子是該系統在 50 首歌上 {{ metricInfo.name }} 的中位數（dB），顏色越深越高。依目前 stem（{{ targetInfo.name }}）排序。</p>
-          <Leaderboard :rows="leaderboardRows" :target="target" :metric="metric" :selected="selected" :color="color" :text-on="textOn"
+          <Leaderboard :rows="leaderboardRows" :target="viewTarget" :metric="viewMetric" :selected="selected" :color="color" :text-on="textOn"
             @select="toggleSelect" @set-target="target = $event" />
         </figure>
         <div>
@@ -431,7 +440,7 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
         <p class="desc" v-if="heatmapLayout.groups.length">曲目目前<strong>依階段 4 分割樹的分群</strong>排列（群內由難到易），可以直接檢查演算法找到的群在原始分數上看不看得出來。在階段 4 取消勾選即可恢復由難到易。</p>
         <p class="desc" v-else>列依排行、欄依「難度」排序（非 oracle 系統在該曲的中位數）。整欄都淺色的歌對所有系統都難；一列整體偏深的系統全面較強。</p>
         <TrackHeatmap :systems="ranking" :tracks="heatmapLayout.tracks" :groups="heatmapLayout.groups" :value="valueAt" :selected="selected" :selected-track="selectedTrack"
-          :color="color" :metric="metric" @select="toggleSelect" @select-track="selectTrack" />
+          :color="color" :metric="viewMetric" @select="toggleSelect" @select-track="selectTrack" />
       </figure>
 
       <figure>
@@ -440,7 +449,7 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
           <span class="hint" v-else>在圖 3 點一首歌</span>
         </h2>
         <p class="desc">畫出{{ selected.size ? '已選取的系統' : '排行前 5 的系統' }}在這首歌上每一秒的分數。線的顏色是系統類別，線尾標系統名。</p>
-        <Timeline v-if="selectedTrack && frames" :frames="frames" :systems="timelineSystems" :target="target" :metric="metric"
+        <Timeline v-if="selectedTrack && frames" :frames="frames" :systems="timelineSystems" :target="viewTarget" :metric="viewMetric"
           :track-label="selectedTrackInfo ? selectedTrackInfo.title : ''" />
         <p v-else-if="selectedTrack" class="status">載入逐秒資料中…</p>
         <p v-else class="placeholder-text">尚未選取曲目。</p>
@@ -451,13 +460,13 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
         <figure>
           <h2>圖 A　方法地圖 <span class="hint">MDS · 連線 = 共同作者</span></h2>
           <p class="desc">每個系統一個點，位置由 50 首歌分數剖面的相關係數經 MDS 投影而來：靠近 = 在同樣的歌上同樣好或同樣壞。連線表示兩個系統有共同作者。</p>
-          <MethodMap :points="mapPoints" :edges="authorEdges" :selected="selected" :metric="metric" @select="toggleSelect" />
+          <MethodMap :points="mapPoints" :edges="authorEdges" :selected="selected" :metric="viewMetric" @select="toggleSelect" />
         </figure>
         <figure>
           <h2>圖 B　優勢圖 <span class="hint">誰顯著贏誰 · {{ targetInfo.name }} · {{ metricInfo.name }}</span></h2>
           <p class="desc">對每一對系統，用 50 首歌的配對分數做 Wilcoxon signed-rank 檢定。「A 顯著優於 B」畫成由左往右的邊，再去掉可由遞移推得的邊（{{ dominance.allEdges }} 對顯著關係化簡為 {{ dominance.edges.length }} 條邊）。</p>
           <DominanceGraph :nodes="ranking" :edges="dominance.edges" :layers="dominance.layers" :win="dominance.win"
-            :selected="selected" :metric="metric" :alpha="ALPHA" :dark="dark" @select="toggleSelect" />
+            :selected="selected" :metric="viewMetric" :alpha="ALPHA" :dark="dark" @select="toggleSelect" />
         </figure>
       </details>
 
@@ -483,14 +492,14 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
           <p class="stage-lead">課堂第 7 週的 cluster heatmap：對一片熱圖的欄做階層式分群，依分群結果重排，並把樹狀圖畫在上方。</p>
         </section>
         <figure>
-          <h2>圖 6　分群熱圖 <span class="hint">人聲 · {{ metricInfo.name }} · 曲目依階層式分群重排</span></h2>
+          <h2>圖 6　分群熱圖 <span class="hint">人聲 · {{ clusterMetric }} · 曲目依階層式分群重排</span></h2>
           <div class="view-tools">
             <span class="control-label">切成幾群</span>
             <div class="seg"><button v-for="k in [2, 3, 4, 5]" :key="k" :class="{ on: clusterK === k }" @click="clusterK = k">{{ k }}</button></div>
             <span class="view-hint">用最上方控制列的「指標」換一片，分群結果會跟著變</span>
           </div>
           <p class="desc">每首歌的特徵是它那一欄（各系統在這首歌上的百分位），距離用歐氏距離、合併用 average linkage。</p>
-          <ClusterHeatmap :systems="stageSystems" :tracks="stageTracks" :value="sliceValue" :raw="sliceRaw" :k="clusterK" :color="pctColor" :metric="metric"
+          <ClusterHeatmap :systems="stageSystems" :tracks="stageTracks" :value="sliceValue" :raw="sliceRaw" :k="clusterK" :color="pctColor" :metric="clusterMetric" :clustering="cl"
             :selected="selected" :selected-track="selectedTrack" @select="toggleSelect" @select-track="selectTrack" />
         </figure>
         <p class="problem"><strong>遇到的問題</strong>　看得到群了，但一次只能處理一片（兩個維度）。換一個指標，分群就不一樣；四個指標合起來歌曲該怎麼分、系統該不該也分，這個方法回答不了。TPFlow 論文在相關研究一節指出同樣的限制。</p>
@@ -510,7 +519,7 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
             </div>
             <span class="control-label">幾群</span>
             <div class="seg"><button v-for="k in [2, 3, 4]" :key="k" :class="{ on: splitK === k }" @click="splitK = k">{{ k }}</button></div>
-            <button @click="doSplit" :disabled="!focusNode || focusNode.children.length > 0">分割選取的節點</button>
+            <button @click="doSplit" :disabled="!focusNode || focusNode.children.length > 0 || splitting">分割選取的節點</button>
             <button class="secondary" @click="undoSplit" :disabled="!focusNode || (!focusNode.children.length && !focusNode.parent)">復原</button>
           </div>
           <p class="desc">每張卡片是一塊資料，長條是摘要沒解釋到的比例（殘差平方和 ÷ 總平方和），越短代表那組長條越能代表這塊資料。<span v-if="splitReadout">這次分割若改沿其他維度，誤差的降幅分別是：{{ splitReadout }}。</span></p>
@@ -576,7 +585,7 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
     </template>
 
     <footer>
-      執行方式：<code>npm install</code> 之後 <code>npm run dev</code>。資料由 <code>python3 -I prepare_data.py &lt;sigsep-mus-2018 路徑&gt;</code> 彙整到 <code>public/data/</code>。
+      執行方式：<code>npm install</code> 之後同時開 <code>npm run api</code>（Python 計算後端）與 <code>npm run dev</code>。資料由 <code>python3 -I prepare_data.py &lt;sigsep-mus-2018 路徑&gt;</code> 彙整到 <code>public/data/</code>。
       <code>npm run check</code> 驗證統計與張量函式。
     </footer>
 
