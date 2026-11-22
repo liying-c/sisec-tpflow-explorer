@@ -1,4 +1,4 @@
-# 推到 master 時先跑後端測試，再 npm run build，把 dist/ 部署到 GitHub Pages
+# 推到 master 時：跑測試 → 後端有變動就部署到 Heroku → npm run build 並把 dist/ 部署到 GitHub Pages
 name: Deploy to GitHub Pages
 
 on:
@@ -24,8 +24,38 @@ jobs:
       - run: uv run pytest -q
         working-directory: backend
 
-  build:
+  # 後端有變動時部署到 Heroku。需要 repo secret HEROKU_API_KEY（heroku authorizations:create 產生）。
+  backend:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0          # Heroku 要完整的歷史才能接受 push
+      - name: 後端相關的檔案有沒有變
+        id: changed
+        run: |
+          before="${{ github.event.before }}"
+          if git cat-file -e "$before^{commit}" 2>/dev/null &&
+             git diff --quiet "$before" HEAD -- backend public/data Procfile requirements.txt .python-version; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"   # 有變動，或無法比較（手動觸發、強制推送）
+          fi
+      - name: 部署到 Heroku
+        if: steps.changed.outputs.deploy == 'true'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          test -n "$HEROKU_API_KEY" || { echo "::error::repo secret HEROKU_API_KEY 未設定"; exit 1; }
+          # 權杖由 credential helper 交給 git，不寫進網址，也就不會出現在任何輸出裡
+          git -c credential.helper= \
+              -c credential.helper='!f() { echo username=heroku; echo "password=$HEROKU_API_KEY"; }; f' \
+              push https://git.heroku.com/sisec-tpflow-explorer.git HEAD:refs/heads/main
+
+  # 前端排在後端之後：前後端一起改的時候，新頁面上線時後端已經是新版
+  build:
+    needs: [test, backend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

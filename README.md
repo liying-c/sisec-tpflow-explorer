@@ -134,7 +134,7 @@ npm run build      # 打包前端到 dist/
 ### 部署
 
 - **前端**：推到 master 時由 GitHub Actions 打包並部署到 GitHub Pages。後端網址由 repo 變數 `API_URL` 指定（打包時成為 `VITE_API_URL`）。
-- **後端**：Heroku。repo 根目錄的 `Procfile`、`requirements.txt`、`.python-version` 是給它用的。根目錄同時有 `package.json`，所以要明確指定 Python buildpack：
+- **後端**：Heroku。推到 master 時，若 `backend/`、`public/data/` 或下列啟動檔有變動，同一個 workflow 會在測試通過後自動部署（需要 repo secret `HEROKU_API_KEY`）。repo 根目錄的 `Procfile`、`requirements.txt`、`.python-version` 是給 Heroku 用的。根目錄同時有 `package.json`，所以要明確指定 Python buildpack：
 
   ```bash
   heroku buildpacks:set heroku/python
