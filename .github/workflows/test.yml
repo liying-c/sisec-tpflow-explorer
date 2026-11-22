@@ -1,0 +1,21 @@
+# 每次推送與 PR 都跑測試（部署前的把關在 deploy.yml，這裡讓分支上的問題提早出現）
+name: Test
+
+on:
+  push:
+    branches-ignore: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@v7
+      - run: npm run check

@@ -29,6 +29,22 @@ class NotEnoughSystems(ValueError):
         super().__init__("可見系統不足，無法計算")
 
 
+def _frozen(value):
+    """把結果裡的每個陣列設成唯讀後原樣回傳。
+
+    下面的結果會被 lru_cache 留著重複回傳；陣列若可寫，一次就地修改會汙染之後所有請求。
+    """
+    if isinstance(value, np.ndarray):
+        value.setflags(write=False)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _frozen(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _frozen(v)
+    return value
+
+
 # ---------- 排序 ----------
 def _best_first(values: np.ndarray) -> np.ndarray:
     """由大到小的穩定排序，缺值排最後。"""
@@ -116,12 +132,12 @@ def overview(ds: Dataset, metric: str, target: str, categories: frozenset[str]) 
         "layers": dict(zip(ranked, longest_path_layers(len(order), reduced))),
         "wins": pw.wins, "n": pw.n, "p": pw.p,
     }
-    return {
+    return _frozen({
         "ranking": ranking, "leaderboard": leaderboard,
         "trackIds": ds.track_ids(), "profiles": dict(zip(names, profiles)),
         "colorDomain": color_domain, "tracksSorted": tracks_sorted,
         "map": points, "authorEdges": _author_edges(ds, vis), "dominance": dominance,
-    }
+    })
 
 
 # ---------- 階段 2–4：人聲、四個指標 ----------
@@ -132,7 +148,7 @@ def _percentiles(ds: Dataset) -> np.ndarray:
     四個指標尺度不同、dB 有負值，轉換後才能放進同一個非負張量。不受類別篩選影響。
     """
     vocals = ds.scores[:, TARGETS.index(STAGE_TARGET)]
-    return np.stack([percentile_ranks(vocals[..., m]) for m in range(len(METRICS))], axis=-1)
+    return _frozen(np.stack([percentile_ranks(vocals[..., m]) for m in range(len(METRICS))], axis=-1))
 
 
 @lru_cache(maxsize=32)
@@ -147,7 +163,7 @@ def _stage_axes(ds: Dataset, categories: frozenset[str]) -> tuple[np.ndarray, np
     systems, sdr, medians = vis[order], sdr[order], medians[order]
     difficulty = _difficulty(ds, systems, sdr) if len(systems) else np.full(len(ds.tracks), np.nan)
     tracks = _hardest_first(difficulty)
-    return systems, medians, tracks, difficulty[tracks]
+    return _frozen((systems, medians, tracks, difficulty[tracks]))
 
 
 @lru_cache(maxsize=32)
@@ -156,7 +172,7 @@ def stage(ds: Dataset, categories: frozenset[str]) -> dict:
     cells = np.ix_(systems, tracks)
     vis = ds.visible(categories)
     anchor = nanmedian(ds.scores[vis, TARGETS.index(STAGE_TARGET)], axis=1) if len(vis) else []   # (可見系統, 指標)
-    return {
+    return _frozen({
         "ready": len(systems) >= MIN_STAGE_SYSTEMS,
         "systems": [_system_row(ds, i, med) for i, med in zip(systems, medians)],
         "tracks": [{**ds.tracks[t], "difficulty": d} for t, d in zip(tracks, difficulty)],
@@ -167,7 +183,7 @@ def stage(ds: Dataset, categories: frozenset[str]) -> dict:
             {"system": ds.systems[i]["system"], "category": ds.systems[i]["category"], **dict(zip(METRICS, row))}
             for i, row in zip(vis, anchor)
         ],
-    }
+    })
 
 
 @lru_cache(maxsize=32)
@@ -176,9 +192,7 @@ def base_tensor(ds: Dataset, categories: frozenset[str]) -> np.ndarray:
     systems, _, tracks, _ = _stage_axes(ds, categories)
     if len(systems) < MIN_STAGE_SYSTEMS:
         raise NotEnoughSystems
-    tensor = np.nan_to_num(_percentiles(ds)[np.ix_(systems, tracks)], nan=0.5)
-    tensor.setflags(write=False)
-    return tensor
+    return _frozen(np.nan_to_num(_percentiles(ds)[np.ix_(systems, tracks)], nan=0.5))
 
 
 @lru_cache(maxsize=128)

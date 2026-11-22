@@ -1,4 +1,6 @@
 import csv
+import itertools
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,16 +93,50 @@ def test_cluster_shape(client):
     assert set(r["labels"]) == {"2", "3", "4", "5"} and len(set(r["labels"]["4"])) == 4
 
 
-def test_no_nan_in_any_response(client):
+SUBSETS = [list(c) for r in range(1, 5) for c in itertools.combinations(ALL, r)]
+TARGETS = ["vocals", "drums", "bass", "other", "accompaniment"]
+METRICS = ["SDR", "SIR", "SAR", "ISR"]
+
+
+def strict_json(response):
+    """標準 JSON 不允許 NaN / Infinity；Python 預設會放行，這裡明確拒絕。"""
+    def reject(token):
+        raise AssertionError(f"回應裡出現 {token}")
+    return json.loads(response.text, parse_constant=reject)
+
+
+@pytest.mark.parametrize("cats", SUBSETS, ids=lambda c: "+".join(c))
+def test_no_nan_in_any_response(client, cats):
+    scope = {"categories": cats}
+    for i, target in enumerate(TARGETS):        # 每個 stem 都測；指標輪流，四個都會用到
+        r = client.post("/api/overview", json={**scope, "metric": METRICS[i % 4], "target": target})
+        assert r.status_code == 200
+        strict_json(r)
+    st = strict_json(client.post("/api/stage", json=scope))
+    full = [list(range(len(st["systems"]))), list(range(len(st["tracks"]))), list(range(4))]
+    for metric in METRICS:
+        strict_json(client.post("/api/cluster", json={**scope, "metric": metric}))
+    strict_json(client.post("/api/partition/summary", json={**scope, "idx": full}))
+    for mode in (None, 0, 1, 2):
+        strict_json(client.post("/api/partition/split", json={**scope, "idx": full, "mode": mode, "k": 3}))
+
+
+def test_missing_scores_become_null_and_rank_last(client):
     # drums：盲分離系統整列缺值
     r = client.post("/api/overview", json={"metric": "SIR", "target": "drums", "categories": ALL})
-    assert r.status_code == 200 and "NaN" not in r.text and "Infinity" not in r.text
     ranking = r.json()["ranking"]
     blind = [x for x in ranking if x["category"] == "blind"]
     assert len(blind) == 7 and all(x["median"] is None for x in blind)
     assert ranking[-1]["median"] is None and ranking[0]["median"] is not None
     blind_names = {x["system"] for x in blind}
     assert not any(a in blind_names or b in blind_names for a, b in r.json()["dominance"]["edges"])
+
+
+def test_more_groups_than_elements_gives_one_group_per_element(client):
+    # 只有 2 個系統卻要切 5 群：切成 2 群（每個元素一群），不是錯誤
+    body = {"categories": ALL, "idx": [[0, 1], list(range(50)), [0, 1, 2, 3]], "mode": 0, "k": 5}
+    r = client.post("/api/partition/split", json=body).json()
+    assert r["ok"] and sorted(c["idx"][0] for c in r["children"]) == [[0], [1]]
 
 
 def test_too_few_systems(tiny_client):

@@ -24,7 +24,10 @@ class Dendrogram:
     def cut(self, k: int) -> list[int]:
         """把樹切成 k 群：反覆拆開高度最大的那個節點。回傳每個點的群編號。"""
         by_id = {m.id: m for m in self.merges}
-        height = lambda node: by_id[node].height if node in by_id else -np.inf
+
+        def height(node: int) -> float:
+            return by_id[node].height if node in by_id else -np.inf
+
         parts = [self.merges[-1].id] if self.merges else [0]
         while len(parts) < min(k, self.n):
             at = max(range(len(parts)), key=lambda i: height(parts[i]))   # 平手取最前面

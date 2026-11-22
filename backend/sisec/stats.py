@@ -45,13 +45,18 @@ def correlation_distance(profiles: np.ndarray) -> np.ndarray:
 
 
 def _toward(reference: np.ndarray, space: np.ndarray, taken: list[np.ndarray]) -> np.ndarray:
-    """space（欄為正交基底）裡與 taken 正交、且最靠近 reference 的單位向量。"""
-    candidates = [space @ (space.T @ reference), *space.T]   # 投影為零時退而取基底向量
-    for v in candidates:
+    """space（欄為正交基底）裡與 taken 正交、且最靠近 reference 的單位向量。
+
+    reference 在剩下的方向上已經沒有分量時（同一個特徵空間要取第二軸），
+    改用它的平方、立方……：這些向量線性獨立，所以一定找得到，而且結果不取決於 space 用哪一組基底。
+    """
+    for power in range(1, len(reference) + 1):
+        target = reference**power
+        v = space @ (space.T @ target)
         for t in taken:
             v = v - (t @ v) * t
         norm = np.linalg.norm(v)
-        if norm > 1e-9 * np.linalg.norm(reference):
+        if norm > 1e-9 * np.linalg.norm(target):
             return v / norm
     raise ValueError("space 的維度不足")
 

@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from conftest import GROUPS, assert_close
@@ -53,3 +54,26 @@ def test_author_names_are_title_cased_with_non_ascii_letters(ds):
 def test_author_edge_ignores_annotations_and_short_tokens(ds):
     edges = views.overview(ds, "SDR", "vocals", frozenset({"blind"}))["authorEdges"]
     assert all("(" not in n and len(n) > 3 for e in edges for n in e["shared"])
+
+
+def _arrays(value):
+    if isinstance(value, np.ndarray):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _arrays(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _arrays(v)
+
+
+@pytest.mark.parametrize("build", [
+    lambda ds, cats: views.overview(ds, "SDR", "vocals", cats),
+    lambda ds, cats: views.stage(ds, cats),
+    lambda ds, cats: views.base_tensor(ds, cats),
+    lambda ds, cats: views.cluster(ds, cats, "SDR"),
+])
+def test_cached_results_cannot_be_modified_in_place(ds, build):
+    # 這些結果會被快取並重複回傳；陣列若可寫，一次不小心的就地修改會汙染之後所有請求
+    arrays = list(_arrays(build(ds, frozenset({"supervised", "blind"}))))
+    assert all(not a.flags.writeable for a in arrays)

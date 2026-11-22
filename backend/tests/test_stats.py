@@ -53,12 +53,21 @@ def test_mds_collinear_points_have_flat_second_axis():
     assert np.abs(xy[:, 1]).max() < 1e-6 and abs(abs(xy[2, 0] - xy[0, 0]) - 3) < 1e-9
 
 
-def test_mds_repeated_eigenvalue_is_deterministic_and_exact():
-    # 正三角形：兩個特徵值相同，特徵向量不唯一
+def test_mds_repeated_eigenvalue_fixes_both_axes():
+    # 正三角形：兩個特徵值相同，特徵空間裡任何方向都是特徵向量。
+    # 兩軸都必須由固定的規則決定，不能取決於 eigh 剛好回傳哪一組基底。
     d = 2 * (1 - np.eye(3))
     xy = classical_mds(d)
     assert np.abs(np.linalg.norm(xy[:, None] - xy[None], axis=-1) - d).max() < 1e-9
-    assert xy[2, 0] > xy[0, 0]                      # 第一軸朝向遞增的參考向量
+    r3 = np.sqrt(3)
+    np.testing.assert_allclose(xy, [[-1, 1 / r3], [0, -2 / r3], [1, 1 / r3]], atol=1e-6)
+
+
+def test_mds_all_points_equidistant_is_stable_under_relabeling_noise():
+    # 7 個彼此距離都是 2 的點（全缺值的系統）：加上極小擾動不應讓座標跳到另一組基底
+    d = 2 * (1 - np.eye(7))
+    noise = 1e-13 * np.arange(49).reshape(7, 7)
+    np.testing.assert_allclose(classical_mds(d), classical_mds(d + noise + noise.T - 2 * np.diag(np.diag(noise))), atol=1e-4)
 
 
 def test_correlation_distance_all_nan_row():

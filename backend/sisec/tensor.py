@@ -39,7 +39,12 @@ class RankOne:
     cost: float                       # 殘差平方和；可加總，子張量的 cost 相加可與母張量比較
 
     def reconstruct(self) -> np.ndarray:
-        return self.weight * reduce(np.multiply.outer, self.vectors)
+        return _outer(self.weight, self.vectors)
+
+
+def _outer(weight: float, vectors) -> np.ndarray:
+    """λ · v₀ ⊗ v₁ ⊗ …"""
+    return weight * reduce(np.multiply.outer, vectors)
 
 
 def _contract_others(X: np.ndarray, vectors: list[np.ndarray], mode: int) -> np.ndarray:
@@ -75,8 +80,8 @@ def rank_one(X: np.ndarray, *, nonneg: bool = True, iters: int = 200, tol: float
             vectors[mode], weight = w, float(norm)
         if change < tol:
             break
-    fit = RankOne(weight, tuple(vectors), 0.0)
-    return RankOne(weight, fit.vectors, float(np.sum((X - fit.reconstruct()) ** 2)))
+    cost = float(np.sum((X - _outer(weight, vectors)) ** 2))
+    return RankOne(weight, tuple(vectors), cost)
 
 
 def successive_rank_one(X: np.ndarray, rank: int = 3) -> list[RankOne]:

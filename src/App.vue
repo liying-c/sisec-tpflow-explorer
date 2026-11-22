@@ -47,20 +47,23 @@ const ov = shallowRef(null)     // 階段 1：{ metric, target, ...overview }，
 const st = shallowRef(null)     // 階段 2–4：人聲的列、欄、百分位
 const cl = shallowRef(null)     // 圖 6：{ metric, order, merges, labels }
 const busy = ref(0)             // 進行中的請求數
-const apiError = ref('')
+const failures = ref({})        // 請求種類 → 錯誤訊息；各管各的，一種請求成功不會清掉另一種的錯誤
+const apiError = computed(() => Object.values(failures.value)[0] ?? '')
 const describe = e => `無法連上計算伺服器（${e.message}）。若伺服器剛喚醒，請稍候重新整理。`
 const scope = () => ({ categories: [...cats.value] })
 
-// 執行一個請求並維護「計算中」與錯誤訊息。失敗時保留上一次的畫面；strict 時改為往外丟（首次載入用）。
-async function call(task, strict = false) {
+// 執行一個請求並維護「計算中」與錯誤訊息。kind 是請求的種類（overview、stage…）。
+// 失敗時保留上一次的畫面；strict 時改為往外丟（首次載入用）。
+async function call(kind, task, strict = false) {
   busy.value++
   try {
     const result = await task()
-    apiError.value = ''
+    const { [kind]: _, ...rest } = failures.value
+    failures.value = rest
     return result
   } catch (e) {
     if (strict) throw e
-    apiError.value = describe(e)
+    failures.value = { ...failures.value, [kind]: describe(e) }
   } finally {
     busy.value--
   }
@@ -75,7 +78,7 @@ const data = computed(() => meta.value && {
 const fetchOverview = latest(api.overview)
 async function refreshOverview(strict = false) {
   const query = { metric: metric.value, target: target.value, ...scope() }
-  const r = await call(() => fetchOverview(query), strict)
+  const r = await call('overview', () => fetchOverview(query), strict)
   if (r) ov.value = { ...r, metric: query.metric, target: query.target }
 }
 watch([metric, target, cats], () => { if (meta.value) refreshOverview() })
@@ -165,7 +168,7 @@ async function refreshCluster() {
   // 類別用「目前畫面上的列與欄」所屬的那一組，不用控制列的即時值：
   // 類別剛改、新的列欄還沒回來時，分群的欄順序才不會和熱圖對不上
   const query = { metric: metric.value, ...st.value.scope }
-  const r = await call(() => fetchCluster(query))
+  const r = await call('cluster', () => fetchCluster(query))
   if (r) cl.value = { ...r, metric: query.metric }
 }
 watch(metric, refreshCluster)
@@ -214,7 +217,7 @@ const fetchStage = latest(async query => {
   return { stage, root, scope: query }
 })
 async function refreshStage(strict = false) {
-  const r = await call(() => fetchStage(scope()), strict)
+  const r = await call('stage', () => fetchStage(scope()), strict)
   if (!r) return
   st.value = { ...r.stage, scope: r.scope }
   cl.value = null                        // 舊的分群是照舊的欄順序算的
@@ -277,7 +280,7 @@ async function doSplit() {
   splitting.value = true
   try {
     const mode = splitMode.value === 'auto' ? null : +splitMode.value
-    const result = await call(() => api.split({ ...root.scope, idx: node.idx, mode, k: +splitK.value }))
+    const result = await call('split', () => api.split({ ...root.scope, idx: node.idx, mode, k: +splitK.value }))
     // 切不動（ok 為假）就不改樹；等待期間樹被重建或這個節點已被切開時，也丟棄這次結果
     if (!result?.ok || tree.value !== root || node.children.length) return
     attachChildren(node, result)
@@ -289,7 +292,7 @@ async function doSplit() {
 }
 function undoSplit() {
   const node = focusNode.value
-  if (!node) return
+  if (!node || splitting.value) return   // 分割還在算的時候不能復原，否則結果會掛到已經拿掉的節點上
   const target = node.children.length ? node : node.parent
   if (!target) return
   unsplit(target)
@@ -523,7 +526,7 @@ const fmt = v => (isNum(v) ? v.toFixed(2) : '–')
             <span class="control-label">幾群</span>
             <div class="seg"><button v-for="k in [2, 3, 4]" :key="k" :class="{ on: splitK === k }" @click="splitK = k">{{ k }}</button></div>
             <button @click="doSplit" :disabled="!focusNode || focusNode.children.length > 0 || splitting">分割選取的節點</button>
-            <button class="secondary" @click="undoSplit" :disabled="!focusNode || (!focusNode.children.length && !focusNode.parent)">復原</button>
+            <button class="secondary" @click="undoSplit" :disabled="!focusNode || splitting || (!focusNode.children.length && !focusNode.parent)">復原</button>
           </div>
           <p class="desc">每張卡片是一塊資料，長條是摘要沒解釋到的比例（殘差平方和 ÷ 總平方和），越短代表那組長條越能代表這塊資料。<span v-if="splitReadout">這次分割若改沿其他維度，誤差的降幅分別是：{{ splitReadout }}。</span></p>
           <p class="desc">注意：「自動推薦」選的是分割後誤差最小的維度，但它會偏向元素最少的維度。指標只有 4 個，切開後每一群都各自擁有一整組系統和曲目的長條，等於多了很多自由度，誤差自然降得多。所以上面列出三個維度的降幅讓你自己判斷。</p>
