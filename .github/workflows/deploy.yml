@@ -34,6 +34,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # 沒設定後端網址就不部署：否則會上線一個連不到計算伺服器的頁面
+      - name: 確認已設定 API_URL
+        run: test -n "$VITE_API_URL" || { echo "::error::repo 變數 API_URL 未設定"; exit 1; }
+        env:
+          VITE_API_URL: ${{ vars.API_URL }}
       - run: npm run build
         env:
           # 計算後端的網址（repo 變數）；前端打包時寫進程式

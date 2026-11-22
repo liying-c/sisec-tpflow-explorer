@@ -12,7 +12,8 @@ import SmallMultiples from './components/SmallMultiples.vue'
 import ClusterHeatmap from './components/ClusterHeatmap.vue'
 import PartitionTree from './components/PartitionTree.vue'
 import PatternBars from './components/PatternBars.vue'
-import { api, loadFrames, latest } from './api.js'
+import { api, loadFrames } from './api.js'
+import { latest } from './latest.js'
 import { CATEGORIES, CATEGORY, METRICS, TARGETS, MODE_NAMES, MODE_UNITS } from './series.js'
 import { tip } from './tooltip.js'
 
@@ -161,7 +162,9 @@ const sliceRaw = (s, t) => rawAt(s, t, clusterMetric.value)
 const fetchCluster = latest(api.cluster)
 async function refreshCluster() {
   if (!stageReady.value) { cl.value = null; return }
-  const query = { metric: metric.value, ...scope() }
+  // 類別用「目前畫面上的列與欄」所屬的那一組，不用控制列的即時值：
+  // 類別剛改、新的列欄還沒回來時，分群的欄順序才不會和熱圖對不上
+  const query = { metric: metric.value, ...st.value.scope }
   const r = await call(() => fetchCluster(query))
   if (r) cl.value = { ...r, metric: query.metric }
 }
@@ -198,7 +201,7 @@ function flatten(root) {
 // 類別改變 → 列與欄改變 → 樹要重建。三件事（列欄、根節點、網址指定的第一次分割）一起取回再一起換上。
 const fetchStage = latest(async query => {
   const stage = await api.stage(query)
-  if (!stage.ready) return { stage, root: null }
+  if (!stage.ready) return { stage, root: null, scope: query }
   const full = [stage.systems.length, stage.tracks.length, stage.metrics.length].map(range)
   const root = makeNode(full, await api.summary({ ...query, idx: full }))
   root.scope = query
@@ -208,12 +211,12 @@ const fetchStage = latest(async query => {
     const result = await api.split({ ...query, idx: full, mode: +m[1], k: +m[2] })
     if (result.ok) attachChildren(root, result)
   }
-  return { stage, root }
+  return { stage, root, scope: query }
 })
 async function refreshStage(strict = false) {
   const r = await call(() => fetchStage(scope()), strict)
   if (!r) return
-  st.value = r.stage
+  st.value = { ...r.stage, scope: r.scope }
   cl.value = null                        // 舊的分群是照舊的欄順序算的
   tree.value = r.root
   focusId.value = r.root ? r.root.id : -1
