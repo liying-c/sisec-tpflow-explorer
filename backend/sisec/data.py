@@ -23,7 +23,7 @@ DEFAULT_DATA_DIR = Path(
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)   # eq=False：以物件本身為雜湊鍵，可當快取的參數
 class Dataset:
     systems: tuple[dict, ...]  # systems.csv 的列，順序同檔案
     tracks: tuple[dict, ...]   # tracks.csv 的列；duration_s 為 int

@@ -45,3 +45,19 @@ def planted():
     a = outer([1, 2, 3, 4, 5], [1, 1.2, 0.9, 1.1], [1, 2, 1])
     b = outer([5, 4, 3, 2, 1], [1, 0.8, 1.1, 1.2], [1, 2, 1])
     return np.concatenate([a, b], axis=1)
+
+
+def assert_close(got, want, atol=1e-9, path="$"):
+    """遞迴比對 JSON 結構：數字用絕對誤差，其餘必須相等；None 只等於 None。"""
+    if isinstance(want, dict):
+        assert isinstance(got, dict) and got.keys() == want.keys(), f"{path}: {sorted(got)} != {sorted(want)}"
+        for key in want:
+            assert_close(got[key], want[key], atol, f"{path}.{key}")
+    elif isinstance(want, list):
+        assert isinstance(got, list) and len(got) == len(want), f"{path}: 長度不同"
+        for i, (g, w) in enumerate(zip(got, want)):
+            assert_close(g, w, atol, f"{path}[{i}]")
+    elif isinstance(want, float) and isinstance(got, (int, float)) and not isinstance(got, bool):
+        assert abs(got - want) <= atol, f"{path}: {got} != {want}"
+    else:
+        assert got == want, f"{path}: {got!r} != {want!r}"
